@@ -1,0 +1,20 @@
+video,output,output_partial,candidate_id,label,status,rows,source_fps,duration_s,elapsed_s,detail
+/content/temp_raw_videos/Fold5_part1/49/0.mp4,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/49/0_features.csv,,49,0,success,9096,29.654,613.44,811.26,
+/content/temp_raw_videos/Fold5_part1/49/10_1.mp4,,,,,skipped_unrecognized_label,,,,,"Filename stem must be 0, 5, or 10."
+/content/temp_raw_videos/Fold5_part1/49/10_2.mp4,,,,,skipped_unrecognized_label,,,,,"Filename stem must be 0, 5, or 10."
+/content/temp_raw_videos/Fold5_part1/49/5.mp4,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/49/5_features.csv,,49,5,success,8958,29.654,604.17,813.57,
+/content/temp_raw_videos/Fold5_part1/50/0.MOV,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/50/0_features.csv,,50,0,success,8939,30.025,606.0,492.69,
+/content/temp_raw_videos/Fold5_part1/50/10.MOV,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/50/10_features.csv,,50,10,success,9843,30.025,666.55,585.08,
+/content/temp_raw_videos/Fold5_part1/50/5.MOV,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/50/5_features.csv,,50,5,success,10664,30.025,722.18,625.43,
+/content/temp_raw_videos/Fold5_part1/51/0.MOV,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/51/0_features.csv,,51,0,success,8941,30.025,605.47,350.25,
+/content/temp_raw_videos/Fold5_part1/51/10.mov,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/51/10_features.csv,,51,10,success,9247,30.0,616.47,300.44,
+/content/temp_raw_videos/Fold5_part1/51/5.MOV,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/51/5_features.csv,,51,5,success,9181,30.0,612.07,345.55,
+/content/temp_raw_videos/Fold5_part1/52/0.mov,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/52/0_features.csv,,52,0,success,8874,30.025,600.97,532.21,
+/content/temp_raw_videos/Fold5_part1/52/10.MOV,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/52/10_features.csv,,52,10,success,9039,29.969,603.19,1003.23,
+/content/temp_raw_videos/Fold5_part1/52/5.MOV,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/52/5_features.csv,,52,5,success,9031,29.969,602.69,1026.31,
+/content/temp_raw_videos/Fold5_part1/53/0.MOV,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/53/0_features.csv,,53,0,success,9038,29.969,603.16,995.99,
+/content/temp_raw_videos/Fold5_part1/53/10.MOV,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/53/10_features.csv,,53,10,success,9384,29.969,626.22,1028.42,
+/content/temp_raw_videos/Fold5_part1/53/5.MOV,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/53/5_features.csv,,53,5,success,9380,29.969,625.98,1023.99,
+/content/temp_raw_videos/Fold5_part1/54/0.mp4,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/54/0_features.csv,,54,0,success,6662,29.945,638.07,307.29,
+/content/temp_raw_videos/Fold5_part1/54/10.mp4,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/54/10_features.csv,,54,10,success,6609,29.945,632.63,308.32,
+/content/temp_raw_videos/Fold5_part1/54/5.mp4,/content/drive/MyDrive/UTA_RLDD_Features_15fps/Fold5_part1/54/5_features.csv,,54,5,success,5670,16.038,679.71,216.89,
