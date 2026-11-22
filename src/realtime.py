@@ -37,8 +37,8 @@ def _binary_split(probs):
     p_a = float(probs.get("alert", 0.0))
     p_n = float(probs.get("neutral_low_vigilance", 0.0))
     p_d = float(probs.get("drowsy", 0.0))
-    p_drowsy_bin = p_n + p_d
-    total = p_a + p_drowsy_bin
+    p_drowsy_bin = p_n/5 + p_d
+    total = p_a + p_drowsy_bin + 4*p_n/5
     if total <= 1e-9:
         return 0.5, 0.5
     return p_a / total, p_drowsy_bin / total
