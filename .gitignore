@@ -1,2 +1,5 @@
 .venv
 dataset
+logs/live/*
+!logs/live/.gitkeep
+src/__pycache__/*
