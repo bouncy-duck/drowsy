@@ -33,3 +33,22 @@ DEFAULT_BATCH_SIZE = 128
 DEFAULT_LR         = 1e-3
 DEFAULT_VAL_FRAC   = 0.15
 DEFAULT_SEED       = 42
+
+# --- Alarm ----------------------------------------------------------------
+# Three user-supplied WAV files. Any length; they will loop.
+# Place them in artifacts/ or override via CLI.
+ALARM_MILD_WAV      = ARTIFACTS_DIR / "alarm_mild.wav"
+ALARM_INTENSE_WAV   = ARTIFACTS_DIR / "alarm_intense.wav"
+ALARM_FACE_LOST_WAV = ARTIFACTS_DIR / "alarm_face_lost.wav"
+
+# Timing semantics (all wall-clock, seconds)
+ALARM_DROWSY_ENTER_SEC   = 3.0     # continuous drowsy before MILD latches
+ALARM_INTENSE_ONSET_SEC  = 12.0    # continuous drowsy before INTENSE latches
+ALARM_RELEASE_SEC        = 3.0     # continuous non-drowsy clears latches
+FACE_LOST_DELAY_SEC      = 2.0     # face-loss duration before pitch is consulted
+FACE_LOST_RELEASE_SEC    = 5.0     # continuous non-drowsy after face return
+
+# Head-pitch fallback (rule-based; not a model input)
+HEAD_PITCH_SEVERE_DEG      = 35.0  # threshold on max(|baseline - pitch|)
+PITCH_WINDOW_SAMPLES       = 10    # ~2 s at 5 Hz
+PITCH_BASELINE_MIN_SAMPLES = 10    # samples required to lock the baseline
