@@ -3,22 +3,43 @@ import argparse
 import csv
 import math
 import time
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
 import cv2
+import numpy as np
 import torch
 
+from src import config
 from src.config import ARTIFACTS_DIR, WINDOW_SIZE
 from src.live_features import build_landmarker, compute_features, download_model_if_missing
 from src.stream import DrowsinessDetector
+from src.alarm_policy import AlarmLevel, AlarmPolicy
+from src.audio_sink import NullSink, WinsoundSink
 
 
 # BGR colours
-COLOR_ALERT   = (60, 170, 60)     # green
-COLOR_DROWSY  = (40, 40, 210)     # red
-COLOR_WARM    = (120, 120, 120)   # grey
-COLOR_FACELOST = (0, 165, 255)    # orange
+COLOR_ALERT    = (60, 170, 60)
+COLOR_DROWSY   = (40, 40, 210)
+COLOR_WARM     = (120, 120, 120)
+COLOR_FACELOST = (0, 165, 255)
+COLOR_ALARM    = (30, 30, 220)
+
+
+_ALARM_TEXT = {
+    AlarmLevel.IDLE:      "ALARM: idle",
+    AlarmLevel.MILD:      "ALARM: MILD",
+    AlarmLevel.INTENSE:   "ALARM: INTENSE",
+    AlarmLevel.FACE_LOST: "ALARM: FACE LOST",
+}
+
+_ALARM_COLOR = {
+    AlarmLevel.IDLE:      (100, 100, 100),
+    AlarmLevel.MILD:      (60, 160, 220),
+    AlarmLevel.INTENSE:   (30, 30, 220),
+    AlarmLevel.FACE_LOST: (0, 140, 255),
+}
 
 
 def _put_text_bg(frame, text, org, scale, fg, bg, thickness=2, pad=10):
@@ -33,7 +54,7 @@ def _put_text_bg(frame, text, org, scale, fg, bg, thickness=2, pad=10):
 
 
 def _binary_split(probs):
-    """neutral is folded into drowsy — risk-averse."""
+    """neutral folded into drowsy — risk-averse."""
     p_a = float(probs.get("alert", 0.0))
     p_n = float(probs.get("neutral_low_vigilance", 0.0))
     p_d = float(probs.get("drowsy", 0.0))
@@ -47,12 +68,25 @@ def _binary_split(probs):
 def draw_hud(frame, s):
     h = frame.shape[0]
 
-    # main verdict (colour + text)
+    # main verdict
     _put_text_bg(frame, s["label"], (20, 60), 1.4,
                  (255, 255, 255), s["color"], thickness=3)
 
+    # alarm badge
+    alarm_text = _ALARM_TEXT[s["alarm_level"]]
+    if s["muted"] and s["alarm_level"] != AlarmLevel.IDLE:
+        alarm_text += "  [MUTED]"
+    _put_text_bg(frame, alarm_text, (20, 115), 0.7,
+                 (255, 255, 255), _ALARM_COLOR[s["alarm_level"]], thickness=2)
+
+    # drowsy timer
+    if s["drowsy_run_s"] > 0:
+        cv2.putText(frame, f"drowsy run {s['drowsy_run_s']:.1f}s",
+                    (24, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                    (230, 230, 230), 1, cv2.LINE_AA)
+
     # 3-class softmax
-    y = 110
+    y = 185
     for name in ("alert", "neutral_low_vigilance", "drowsy"):
         p = s["probs"].get(name, 0.0)
         cv2.putText(frame, f"{name[:10]:>10s}  {p:.2f}",
@@ -73,6 +107,13 @@ def draw_hud(frame, s):
     cv2.putText(frame, f"drowsy  {s['p_drowsy_bin']:.2f}",
                 (24, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
                 (230, 230, 230), 1, cv2.LINE_AA)
+
+    # pitch deviation
+    if s["pitch_dev_max"] is not None:
+        y += 22
+        cv2.putText(frame, f"pitch dev max {s['pitch_dev_max']:.1f}deg",
+                    (24, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    (190, 190, 190), 1, cv2.LINE_AA)
 
     # buffer bar
     bx, by, bw, bh = 24, h - 90, 300, 14
@@ -116,7 +157,13 @@ def main():
     p.add_argument("--log-dir", type=Path, default=Path("logs/live"))
     p.add_argument("--no-log", action="store_true")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    p.add_argument("--face-lost-reset-sec", type=float, default=2.0)
+
+    # alarm
+    p.add_argument("--no-alarm", action="store_true",
+                   help="Disable audio alarm entirely.")
+    p.add_argument("--alarm-mild",      type=Path, default=config.ALARM_MILD_WAV)
+    p.add_argument("--alarm-intense",   type=Path, default=config.ALARM_INTENSE_WAV)
+    p.add_argument("--alarm-face-lost", type=Path, default=config.ALARM_FACE_LOST_WAV)
     args = p.parse_args()
 
     # features
@@ -127,6 +174,27 @@ def main():
     # detector
     detector = DrowsinessDetector(args.model, args.norm, device=args.device)
 
+    # alarm policy
+    policy = AlarmPolicy(
+        enter_sec=config.ALARM_DROWSY_ENTER_SEC,
+        intense_onset_sec=config.ALARM_INTENSE_ONSET_SEC,
+        release_sec=config.ALARM_RELEASE_SEC,
+        face_lost_delay_sec=config.FACE_LOST_DELAY_SEC,
+        face_lost_release_sec=config.FACE_LOST_RELEASE_SEC,
+        pitch_severe_deg=config.HEAD_PITCH_SEVERE_DEG,
+    )
+
+    # audio sink
+    if args.no_alarm:
+        sink = NullSink()
+    else:
+        sink = WinsoundSink(
+            mild_path=args.alarm_mild,
+            intense_path=args.alarm_intense,
+            face_lost_path=args.alarm_face_lost,
+        )
+        sink.validate()
+
     # camera
     cap = cv2.VideoCapture(args.camera, cv2.CAP_DSHOW)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -135,9 +203,9 @@ def main():
         raise SystemExit(f"cannot open camera index {args.camera}")
 
     cam_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    frame_stride = max(1, int(round(cam_fps / 5.0)))    # → ~5 Hz features
+    frame_stride = max(1, int(round(cam_fps / 5.0)))
     print(f"[realtime] camera {args.camera} @ {cam_fps:.1f} fps "
-          f"→ feature stride = {frame_stride}")
+          f"-> feature stride = {frame_stride}")
 
     # logging
     log_writer = None
@@ -150,8 +218,11 @@ def main():
         log_writer = csv.writer(log_handle)
         log_writer.writerow([
             "timestamp_s", "ear_mean", "mar", "face_detected",
+            "head_pitch", "pitch_dev_max",
+            "drowsy_run_s", "face_lost_sec",
             "pred_label", "p_alert", "p_neutral", "p_drowsy",
             "p_alert_bin", "p_drowsy_bin",
+            "alarm_level", "muted",
         ])
         print(f"[realtime] logging to {log_path}")
 
@@ -163,11 +234,20 @@ def main():
     pred_count = 0
     probs = {"alert": 0.0, "neutral_low_vigilance": 0.0, "drowsy": 0.0}
     current_pred_label = ""
+    current_is_drowsy_raw = False
     p_alert_bin, p_drowsy_bin = 0.5, 0.5
     session_t0 = time.time()
     fps_t0 = time.time(); fps_count = 0; fps_disp = 0.0
 
-    print("[realtime] q/ESC quit, r reset buffer")
+    # pitch baseline + policy state (persist across frames)
+    pitch_samples_warmup = []
+    baseline_pitch = None
+    pitch_dev_buffer = deque(maxlen=config.PITCH_WINDOW_SAMPLES)
+    pitch_dev_max = None
+    last_alarm_state = None
+    muted = False
+
+    print("[realtime] q/ESC quit, r reset, m mute")
 
     try:
         while True:
@@ -188,7 +268,9 @@ def main():
                 sample_count += 1
                 now = time.time()
 
-                if feats["face_detected"]:
+                face_detected = bool(feats["face_detected"])
+
+                if face_detected:
                     face_lost_started = None
                     ear = feats["ear_mean"]; mar = feats["mar"]
                     if math.isfinite(ear) and math.isfinite(mar):
@@ -199,9 +281,17 @@ def main():
                     ear, mar = last_ear, last_mar
                     if face_lost_started is None:
                         face_lost_started = now
-                    elif now - face_lost_started >= args.face_lost_reset_sec:
-                        detector.reset()
-                        face_lost_started = now
+
+                # pitch baseline (locked at first N samples during warm-up)
+                pitch = feats.get("head_pitch", float("nan"))
+                if face_detected and math.isfinite(pitch):
+                    if baseline_pitch is None and not policy.initial_warmup_done:
+                        pitch_samples_warmup.append(pitch)
+                        if len(pitch_samples_warmup) >= config.PITCH_BASELINE_MIN_SAMPLES:
+                            baseline_pitch = float(np.median(pitch_samples_warmup))
+                    if baseline_pitch is not None:
+                        pitch_dev_buffer.append(abs(baseline_pitch - pitch))
+                pitch_dev_max = max(pitch_dev_buffer) if pitch_dev_buffer else None
 
                 pred = detector.push(ear, mar)
                 if pred is not None:
@@ -209,30 +299,62 @@ def main():
                     probs = pred["probs"]
                     current_pred_label = pred["label_name"]
                     p_alert_bin, p_drowsy_bin = _binary_split(probs)
+                    current_is_drowsy_raw = p_drowsy_bin >= p_alert_bin
+
+                # policy update
+                warmup_active = detector.buffer_fill < WINDOW_SIZE
+                last_alarm_state = policy.update(
+                    now=now,
+                    is_drowsy=current_is_drowsy_raw,
+                    face_detected=face_detected,
+                    warmup_active=warmup_active,
+                    pitch_dev_max=pitch_dev_max,
+                    muted=muted,
+                )
+
+                # sink (transition-only via internal early return)
+                desired_level = AlarmLevel.IDLE if muted else last_alarm_state.level
+                sink.set(desired_level)
 
                 if log_writer is not None:
                     log_writer.writerow([
                         f"{now - session_t0:.3f}",
                         f"{ear:.6f}", f"{mar:.6f}",
-                        int(feats["face_detected"]),
+                        int(face_detected),
+                        f"{pitch:.4f}" if math.isfinite(pitch) else "",
+                        f"{pitch_dev_max:.4f}" if pitch_dev_max is not None else "",
+                        f"{last_alarm_state.drowsy_run_s:.3f}",
+                        f"{last_alarm_state.face_lost_sec:.3f}",
                         current_pred_label,
                         f"{probs['alert']:.4f}",
                         f"{probs['neutral_low_vigilance']:.4f}",
                         f"{probs['drowsy']:.4f}",
                         f"{p_alert_bin:.4f}",
                         f"{p_drowsy_bin:.4f}",
+                        last_alarm_state.level.name,
+                        int(muted),
                     ])
                     if sample_count % 25 == 0:
                         log_handle.flush()
 
             # --- display ---
-            face_lost_sec = 0.0 if face_lost_started is None else (time.time() - face_lost_started)
-            warmup = detector.buffer_fill < WINDOW_SIZE
+            face_lost_sec = (0.0 if face_lost_started is None
+                             else time.time() - face_lost_started)
+            warmup = not policy.initial_warmup_done
 
-            if warmup:
-                label, color = "WARMING UP", COLOR_WARM
-            elif face_lost_sec >= 5.0:
+            alarm_level = (last_alarm_state.level
+                           if last_alarm_state is not None else AlarmLevel.IDLE)
+            drowsy_run_s = (last_alarm_state.drowsy_run_s
+                            if last_alarm_state is not None else 0.0)
+
+            if alarm_level == AlarmLevel.FACE_LOST:
                 label, color = "FACE LOST", COLOR_FACELOST
+            elif warmup:
+                label, color = "WARMING UP", COLOR_WARM
+            elif alarm_level == AlarmLevel.INTENSE:
+                label, color = "DROWSY (INTENSE)", COLOR_ALARM
+            elif alarm_level == AlarmLevel.MILD:
+                label, color = "DROWSY", COLOR_DROWSY
             elif p_drowsy_bin >= p_alert_bin:
                 label, color = "DROWSY", COLOR_DROWSY
             else:
@@ -249,6 +371,10 @@ def main():
                 "fps": fps_disp,
                 "warmup": warmup,
                 "face_lost_sec": face_lost_sec,
+                "alarm_level": alarm_level,
+                "drowsy_run_s": drowsy_run_s,
+                "muted": muted,
+                "pitch_dev_max": pitch_dev_max,
             }
 
             mirrored = cv2.flip(frame, 1)
@@ -260,14 +386,30 @@ def main():
                 break
             if key == ord("r"):
                 detector.reset()
+                policy.reset()
                 face_lost_started = None
-                print("[realtime] buffer reset")
+                pitch_samples_warmup.clear()
+                baseline_pitch = None
+                pitch_dev_buffer.clear()
+                pitch_dev_max = None
+                last_alarm_state = None
+                sink.stop()
+                print("[realtime] reset")
+            if key == ord("m"):
+                muted = not muted
+                print(f"[realtime] {'muted' if muted else 'unmuted'}")
 
     finally:
+        try:
+            sink.stop()
+        except Exception:
+            pass
         cap.release()
         cv2.destroyAllWindows()
-        try:    landmarker.close()
-        except Exception: pass
+        try:
+            landmarker.close()
+        except Exception:
+            pass
         if log_handle is not None:
             log_handle.close()
             print(f"[realtime] log saved to {log_path}")
